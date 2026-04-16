@@ -100,14 +100,18 @@ def judge_task(task, tasks, input_dir=None, output_dir=None, source_dir=None, ti
             console.print(result.stderr.decode(), style="red")
             return False
 
+        # Discover test indices from *.in files in input_dir
+        indices = sorted(
+            int(m.group(1))
+            for f in os.listdir(input_dir)
+            if (m := re.fullmatch(r"(\d+)\.in", f))
+        )
+
         all_passed = True
-        for i in range(1, 6):
+        for i in indices:
             inp = os.path.join(input_dir, f"{i}.in")
             std = os.path.join(output_dir, f"{i}.out")
-            if not os.path.exists(inp):
-                console.print(f"[bold yellow][WARN][/]  Test point {i}: Missing Input File")
-                all_passed = False
-            elif not os.path.exists(std):
+            if not os.path.exists(std):
                 console.print(f"[bold yellow][WARN][/]  Test point {i}: Missing Standard Output File")
                 all_passed = False
             else:
