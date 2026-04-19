@@ -1,7 +1,9 @@
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 
 from rich.console import Console
 from rich.table import Table
@@ -13,6 +15,24 @@ from judger.tasks import check_forbid, discover
 
 console = Console()
 DEFAULT_TIMEOUT = 2.0
+
+
+@contextmanager
+def _build(task: str, result):
+    """Compile task sources into a temp dir. Yields exe path, or None on failure."""
+    cfg = result.tasks[task]
+    src_paths = [os.path.join(task, s) for s in cfg.sources]
+    missing = next((p for p in src_paths if not os.path.exists(p)), None)
+    if missing:
+        console.print(f"[bold #ef4444][FAIL][/] Missing Source Code: {missing}")
+        yield None
+        return
+    workdir = tempfile.mkdtemp()
+    try:
+        exe = os.path.join(workdir, cfg.exe)
+        yield exe if compile_cpp(src_paths, exe) else None
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def _doctor(result) -> None:
@@ -34,23 +54,13 @@ def _doctor(result) -> None:
 def _run_task(task: str, result) -> bool:
     cfg = result.tasks[task]
     src_paths = [os.path.join(task, s) for s in cfg.sources]
-    data_dir = os.path.join("data", task)
-
-    missing = next((p for p in src_paths if not os.path.exists(p)), None)
-    if missing:
-        console.print(f"[bold #ef4444][FAIL][/] Missing Source Code: {missing}")
-        return False
     if check_forbid(task, src_paths, result.forbid):
         return False
-
-    workdir = tempfile.mkdtemp()
-    try:
-        exe = os.path.join(workdir, cfg.exe)
-        if not compile_cpp(src_paths, exe):
+    data_dir = os.path.join("data", task)
+    with _build(task, result) as exe:
+        if exe is None:
             return False
         return judge_task(task, exe, data_dir, data_dir, cfg.timeout or DEFAULT_TIMEOUT)
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def main():
@@ -84,7 +94,9 @@ def main():
         if not 1 <= n <= len(task_list):
             console.print(f"[bold #ef4444][FAIL][/] Task number {n} out of range (1–{len(task_list)})")
             sys.exit(1)
-        _run_task(task_list[n - 1], result)
+        with _build(task_list[n - 1], result) as exe:
+            if exe:
+                subprocess.run([exe])
 
     else:
         console.print("Usage: judger [doctor | run <number>]")
