@@ -46,23 +46,23 @@ Source: ./judger.py
 
 $ STUDENT_ID=20XXXXXXXX judger
 ─────────────────────── 1_wordle ───────────────────────
-[TEST 1] Correct  [10/10]
-[TEST 2] Correct  [10/10]
-[TEST 3] Correct  [10/10]
-[TEST 4] Correct  [10/10]
-[TEST 5] Correct  [10/10]
+[TEST 1] Correct  [10/10]  2ms
+[TEST 2] Correct  [10/10]  1ms
+[TEST 3] Correct  [10/10]  1ms
+[TEST 4] Correct  [10/10]  1ms
+[TEST 5] Correct  [10/10]  1ms
 ──────────────────────── 2_a_b ─────────────────────────
-[TEST 1] Correct  [10/10]
-[TEST 2] Correct  [10/10]
-[TEST 3] Correct  [10/10]
-[TEST 4] Correct  [10/10]
-[TEST 5] Correct  [10/10]
+[TEST 1] Correct  [10/10]  1ms
+[TEST 2] Correct  [10/10]  1ms
+[TEST 3] Correct  [10/10]  1ms
+[TEST 4] Correct  [10/10]  2ms
+[TEST 5] Correct  [10/10]  4ms
 ─────────────────────── 3_regex ────────────────────────
-[TEST 1] Correct  [10/10]
-[TEST 2] Correct  [10/10]
-[TEST 3] Correct  [10/10]
-[TEST 4] Correct  [10/10]
-[TEST 5] Correct  [10/10]
+[TEST 1] Correct  [10/10]  2ms
+[TEST 2] Correct  [10/10]  1ms
+[TEST 3] Correct  [10/10]  1ms
+[TEST 4] Correct  [10/10]  2ms
+[TEST 5] Correct  [10/10]  3ms
 [PACK] All passed — packed to 20XXXXXXXX.zip
 ```
 
