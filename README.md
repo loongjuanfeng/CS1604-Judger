@@ -1,8 +1,8 @@
 # CS1604 Judger
 
-Local judger for CS1604 programming assignments.
+Local judger for CS1604 programming assignments. Compiles and judges C++ submissions against test data, then packs a submission zip when all tasks pass.
 
-## Quick Install
+## Install
 
 ```bash
 uv tool install git+https://github.com/loongjuanfeng/CS1604-Judger.git
@@ -14,72 +14,56 @@ uv tool install git+https://github.com/loongjuanfeng/CS1604-Judger.git
 - [uv](https://github.com/astral-sh/uv)
 - `g++` with C++17 support
 
-## Installation
-
-**As a project dependency (development):**
-
-```bash
-uv sync
-```
-
-**As a global tool (from local source):**
-
-```bash
-uv tool install .
-```
-
-**As a global tool (directly from GitHub, no clone needed):**
-
-```bash
-uv tool install git+https://github.com/loongjuanfeng/CS1604-Judger.git
-```
-
 ## Usage
 
-Run all tasks and auto-pack a submission zip if all pass:
-
 ```bash
-STUDENT_ID=your_student_id uv run judger
+# Judge all tasks; pack <STUDENT_ID>.zip if all pass
+STUDENT_ID=20XXXXXXXX judger
+
+# Judge a single task by number
+judger run 2
+
+# Show detected configuration
+judger doctor
 ```
-
-Run a single task:
-
-```bash
-uv run judger -T 1_hello
-```
-
-### Options
-
-| Flag | Description |
-|------|-------------|
-| `-T`, `--task` | Task name to judge (e.g. `1_hello`). Omit to run all. |
-| `-I`, `--input_dir` | Custom input directory |
-| `-O`, `--output_dir` | Custom output directory |
-| `-S`, `--source_dir` | Custom source directory |
-| `--timeout` | Time limit per test in seconds (default: `2.0`) |
-
-## STUDENT_ID
-
-When all tasks pass, the judger packs your submissions into `<STUDENT_ID>.zip`.
-
-```bash
-export STUDENT_ID=20XXXXXXXX
-uv run judger
-```
-
-If unset, the zip will be named `student.zip`.
 
 ## Project Layout
 
 ```
 .
+├── judger.py          # task config (optional, see below)
 ├── data/
 │   └── <task>/
-│       ├── 1.in … 5.in
-│       └── 1.out … 5.out
-├── <task>/
-│   └── main.cpp
-└── pyproject.toml
+│       ├── 1.in … N.in
+│       └── 1.out … N.out
+└── <task>/
+    └── main.cpp
 ```
 
-Each task directory must match `<number>_<name>` (e.g. `1_hello`, `3_regex`) and contain a `main.cpp`.
+Task directories must match `<number>_<name>` (e.g. `1_hello`, `3_regex`).
+
+## judger.py (optional)
+
+If a `judger.py` is present in the working directory, the judger reads task configuration from its `exec_name` and `forbid_map` dicts instead of scanning directories.
+
+```python
+exec_name = {
+    '1_hello':  ['main.cpp', 'hello'],
+    '2_multi':  [['main.cpp', 'util.cpp'], 'multi'],  # multi-file
+    '3_regex':  ['main.cpp', 'regex', 1.0],           # custom timeout (seconds)
+}
+
+forbid_map = {
+    '3_regex': ['regex'],  # forbidden #include keywords
+}
+```
+
+Without `judger.py`, tasks are auto-discovered from directories and compiled from `main.cpp`.
+
+## Reinstalling after code changes
+
+```bash
+uv tool uninstall judger
+uv cache clean --force
+uv tool install .
+```
