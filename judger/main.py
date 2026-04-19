@@ -1,160 +1,94 @@
 import os
-import re
-import random
 import shutil
-import subprocess
 import sys
 import tempfile
-import zipfile
 
 from rich.console import Console
-from rich.text import Text
+from rich.table import Table
+
+from judger.compiler import compile_cpp
+from judger.judge import judge_task
+from judger.pack import pack_zip
+from judger.tasks import check_forbid, discover
 
 console = Console()
+DEFAULT_TIMEOUT = 2.0
 
 
-def _print_result(i, msg, score):
-    tp = Text(f"[TEST {i}] ", style="bold cyan")
-    tp.append(msg, style="bold green" if score == 10 else "bold red")
-    tp.append(f"  [{score}/10]", style="bold yellow" if 0 < score < 10 else ("bold green" if score == 10 else "bold red"))
-    console.print(tp)
+def _doctor(result) -> None:
+    console.print(f"[bold #3b82f6]Source:[/] {result.source}\n")
+    table = Table(show_header=True, header_style="bold #06b6d4")
+    table.add_column("#")
+    table.add_column("Task")
+    table.add_column("Sources")
+    table.add_column("Exe")
+    table.add_column("Timeout")
+    table.add_column("Forbid")
+    for i, (name, cfg) in enumerate(result.tasks.items(), 1):
+        timeout = f"{cfg.timeout}s" if cfg.timeout else f"{DEFAULT_TIMEOUT}s (default)"
+        forbid = ", ".join(result.forbid.get(name, [])) or "—"
+        table.add_row(str(i), name, ", ".join(cfg.sources), cfg.exe, timeout, forbid)
+    console.print(table)
 
 
-FORBID = {
-    "3_regex": ["regex"],
-}
+def _run_task(task: str, result) -> bool:
+    cfg = result.tasks[task]
+    src_paths = [os.path.join(task, s) for s in cfg.sources]
+    data_dir = os.path.join("data", task)
 
-
-def discover_tasks(base="."):
-    tasks = {}
-    for entry in sorted(os.listdir(base)):
-        if re.match(r"^\d+_.+$", entry) and os.path.isfile(os.path.join(base, entry, "main.cpp")):
-            tasks[entry] = ("main.cpp", "_".join(entry.split("_")[1:]))
-    return tasks
-
-
-def _random_name():
-    return "".join(chr(ord("A") + random.randint(0, 25)) for _ in range(10))
-
-
-def check_forbid(task, src):
-    for keyword in FORBID.get(task, []):
-        kw = keyword.encode()
-        with open(src, "rb") as f:
-            for line in f:
-                if b"include" not in line or kw not in line:
-                    continue
-                pos = line.find(kw)
-                if keyword == "string" and pos > 0 and line[pos - 1] in (ord("c"), ord("C")):
-                    continue
-                console.print(f'[bold red][FAIL][/] #include "{keyword}" is forbidden in {task}')
-                return True
-    return False
-
-
-def judge_one(exe, workdir, input_file, std_file, timeout):
-    out = os.path.join(workdir, _random_name() + ".out")
-    with open(input_file) as fin, open(out, "w") as fout:
-        try:
-            subprocess.run([os.path.join(workdir, exe)], check=True, timeout=timeout, stdin=fin, stdout=fout)
-        except subprocess.TimeoutExpired:
-            return "Out of Time Limit!", 0
-        except subprocess.CalledProcessError as e:
-            return f"Runtime Error with returncode {e.returncode}", 0
-    with open(std_file) as f:
-        expected = f.read().rstrip().splitlines()
-    with open(out) as f:
-        actual = f.read().rstrip().splitlines()
-    if len(expected) != len(actual):
-        return "File length differs", 0
-    for i, (e, a) in enumerate(zip(expected, actual)):
-        if e.rstrip() != a.rstrip():
-            return f"Wrong answer found at Line {i + 1}", 0
-    return "Correct", 10
-
-
-def judge_task(task, tasks, input_dir=None, output_dir=None, source_dir=None, timeout=2.0):
-    """Run all test points for a task. Returns True if all passed."""
-    src_file, exe_name = tasks[task]
-    src_path = os.path.join(source_dir or task, src_file)
-    input_dir = input_dir or os.path.join("data", task)
-    output_dir = output_dir or os.path.join("data", task)
-
-    console.rule(f"[bold blue]{task}")
-
-    if not os.path.exists(src_path):
-        console.print("[bold red][FAIL][/] Missing Source Code")
+    missing = next((p for p in src_paths if not os.path.exists(p)), None)
+    if missing:
+        console.print(f"[bold #ef4444][FAIL][/] Missing Source Code: {missing}")
         return False
-    if check_forbid(task, src_path):
+    if check_forbid(task, src_paths, result.forbid):
         return False
 
     workdir = tempfile.mkdtemp()
     try:
-        exe_path = os.path.join(workdir, exe_name)
-        result = subprocess.run(
-            ["g++", src_path, "-o", exe_path, "-g", "-Wall", "-Wextra", "--std=c++17"],
-            capture_output=True,
-        )
-        if result.returncode != 0:
-            console.print("[bold red][FAIL][/] Compile Error")
-            console.print(result.stderr.decode(), style="red")
+        exe = os.path.join(workdir, cfg.exe)
+        if not compile_cpp(src_paths, exe):
             return False
-
-        # Discover test indices from *.in files in input_dir
-        indices = sorted(
-            int(m.group(1))
-            for f in os.listdir(input_dir)
-            if (m := re.fullmatch(r"(\d+)\.in", f))
-        )
-
-        all_passed = True
-        for i in indices:
-            inp = os.path.join(input_dir, f"{i}.in")
-            std = os.path.join(output_dir, f"{i}.out")
-            if not os.path.exists(std):
-                console.print(f"[bold yellow][WARN][/]  Test point {i}: Missing Standard Output File")
-                all_passed = False
-            else:
-                msg, score = judge_one(exe_name, workdir, inp, std, timeout)
-                _print_result(i, msg, score)
-                if score < 10:
-                    all_passed = False
-        return all_passed
+        return judge_task(task, exe, data_dir, data_dir, cfg.timeout or DEFAULT_TIMEOUT)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def pack_zip(tasks, student_id):
-    zip_name = f"{student_id}.zip"
-    with zipfile.ZipFile(zip_name, "w", zipfile.ZIP_DEFLATED) as zf:
-        for task in tasks:
-            src = os.path.join(task, "main.cpp")
-            zf.write(src, arcname=src)
-    console.print(f"[bold green][PACK][/] All passed — packed to [cyan]{zip_name}[/]")
-
-
 def main():
-    import argparse
+    result = discover()
+    task_list = list(result.tasks)
+    argv = sys.argv[1:]
 
-    tasks = discover_tasks()
-    parser = argparse.ArgumentParser("judger")
-    parser.add_argument("-T", "--task", choices=list(tasks), help="task to judge (omit to run all)")
-    parser.add_argument("-I", "--input_dir")
-    parser.add_argument("-O", "--output_dir")
-    parser.add_argument("-S", "--source_dir")
-    parser.add_argument("--timeout", type=float, default=2.0)
-    args = parser.parse_args()
-
-    if args.task:
-        judge_task(args.task, tasks, args.input_dir, args.output_dir, args.source_dir, args.timeout)
-    else:
-        all_passed = all(judge_task(t, tasks, timeout=args.timeout) for t in tasks)
-        if all_passed:
-            student_id = os.environ.get("STUDENT_ID", "student")
-            pack_zip(tasks, student_id)
-        else:
-            console.print("[bold red][FAIL][/] Some tasks failed — no zip created")
+    if not argv:
+        if not task_list:
+            console.print("[bold #ef4444][FAIL][/] No tasks found in current directory")
             sys.exit(1)
+        all_passed = all(_run_task(t, result) for t in task_list)
+        if all_passed:
+            pack_zip(result.tasks, os.environ.get("STUDENT_ID", "student"))
+        else:
+            console.print("[bold #ef4444][FAIL][/] Some tasks failed — no zip created")
+            sys.exit(1)
+
+    elif argv[0] == "doctor":
+        if not task_list:
+            console.print("[bold #ef4444][FAIL][/] No tasks found in current directory")
+            sys.exit(1)
+        _doctor(result)
+
+    elif argv[0] == "run" and len(argv) == 2:
+        try:
+            n = int(argv[1])
+        except ValueError:
+            console.print(f"[bold #ef4444][FAIL][/] Expected a number, got: {argv[1]}")
+            sys.exit(1)
+        if not 1 <= n <= len(task_list):
+            console.print(f"[bold #ef4444][FAIL][/] Task number {n} out of range (1–{len(task_list)})")
+            sys.exit(1)
+        _run_task(task_list[n - 1], result)
+
+    else:
+        console.print("Usage: judger [doctor | run <number>]")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
